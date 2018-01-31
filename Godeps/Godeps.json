@@ -1,0 +1,6 @@
+{
+	"ImportPath": "lamp-system",
+	"GoVersion": "go1.9",
+	"GodepVersion": "v80",
+	"Deps": []
+}

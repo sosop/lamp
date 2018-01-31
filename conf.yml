@@ -1,0 +1,18 @@
+redis:
+  addr:           10.40.10.20:6379
+  readTimeout:    3
+  writeTimeout:   6
+  connectTimeout: 6
+  db:             0
+  maxIdle:        6
+  maxActive:      30
+  idleTimeout:    300
+
+tcp:
+  host:   0.0.0.0
+  port:   7777
+  conns:  128
+
+http:
+  host: 0.0.0.0
+  port: 9393
