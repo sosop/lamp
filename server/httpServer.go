@@ -7,6 +7,7 @@ import (
 	_ "lamp/config"
 	"github.com/spf13/viper"
 	"fmt"
+	"lamp/utils"
 )
 
 func init() {
@@ -34,31 +35,25 @@ type Response struct {
 	Data interface{}
 }
 
-func NewResponse(code int, Data interface{}) Response {
-	return Response{code, Data}
+func NewResponse(code int, data interface{}) Response {
+	return Response{code, data}
 }
 
 func create(c *ace.C) {
 	tcpConn := TCPConn{}
 	c.ParseJSON(&tcpConn)
-	if strings.TrimSpace(tcpConn.RegisterMsg) == "" ||
-		strings.TrimSpace(tcpConn.HeartMsg) == "" ||
+	if utils.Trim(tcpConn.RegisterMsg) == "" ||
+		utils.Trim(tcpConn.HeartMsg) == "" ||
 		tcpConn.HeartInterval == 0 {
 		c.JSON(400, NewResponse(-1, "参数不正确"))
 		return
 	}
-	if tConn, ok := ConnPool[tcpConn.RegisterMsg]; ok {
-		tConn.HeartInterval = tcpConn.HeartInterval
-		tConn.HeartMsg = tcpConn.HeartMsg
-	} else {
-		ConnPool[tcpConn.RegisterMsg] = &tcpConn
-		tcpConn.Destroy = make(chan struct{}, 1)
-	}
+	AddToPoole(tcpConn, UnknownlineType)
 	c.JSON(200, NewResponse(0, "创建成功"))
 }
 
 func destroy(c *ace.C) {
-	tag := strings.TrimSpace(c.Param("tag"))
+	tag := utils.Trim(c.Param("tag"))
 	if tcpConn, ok := ConnPool[tag]; ok {
 		tcpConn.Close()
 	}
@@ -68,24 +63,30 @@ func destroy(c *ace.C) {
 func modify(c *ace.C) {
 	tcpConn := TCPConn{}
 	c.ParseJSON(&tcpConn)
-
-	if strings.TrimSpace(tcpConn.RegisterMsg) == "" {
+	updated := false
+	if utils.Trim(tcpConn.RegisterMsg) == "" {
 		c.JSON(400, NewResponse(-1, "参数不正确"))
 		return
 	}
 	if tConn, ok := ConnPool[tcpConn.RegisterMsg]; ok {
-		if strings.TrimSpace(tcpConn.HeartMsg) != "" {
+		heartMsg := utils.Trim(tcpConn.HeartMsg)
+		if heartMsg != "" && heartMsg != tConn.HeartMsg {
 			tConn.HeartMsg = tcpConn.HeartMsg
+			updated = true
 		}
-		if tcpConn.HeartInterval > 0 {
+		if tcpConn.HeartInterval > 0 && tcpConn.HeartInterval != tConn.HeartInterval {
 			tConn.HeartInterval = tcpConn.HeartInterval
+			updated = true
+		}
+		if updated {
+			go tConn.heartbeat()
 		}
 	}
 	c.JSON(200, NewResponse(0, "修改成功"))
 }
 
 func device(c *ace.C) {
-	tag := strings.TrimSpace(c.Param("tag"))
+	tag := utils.Trim(c.Param("tag"))
 	if strings.ToLower(tag) == "all" {
 		c.JSON(200, NewResponse(0, ConnPool))
 		return
@@ -100,8 +101,8 @@ func device(c *ace.C) {
 }
 
 func command(c *ace.C) {
-	tag := strings.TrimSpace(c.MustPostString("registerMsg", ""))
-	cmd := strings.TrimSpace(c.MustPostString("cmd", ""))
+	tag := utils.Trim(c.MustPostString("registerMsg", ""))
+	cmd := utils.Trim(c.MustPostString("cmd", ""))
 	cmdType := c.MustPostInt("cmdType", 0)
 	if cmd == "" {
 		log.Error(fmt.Errorf("输入指令不正确"))

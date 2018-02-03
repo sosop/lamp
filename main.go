@@ -15,10 +15,10 @@ func init() {
 
 func main() {
 
-	// http请求监听
-	go server.ListenHttp()
 	// tcp连接请求监听
 	go server.Listen()
+	// http请求监听
+	go server.ListenHttp()
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)

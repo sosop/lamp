@@ -1,5 +1,5 @@
 redis:
-  addr:           10.40.10.20:6379
+  addr:           123.207.42.34:7000
   readTimeout:    3
   writeTimeout:   6
   connectTimeout: 6

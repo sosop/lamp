@@ -14,6 +14,7 @@ import (
 
 var (
 	Pool 			*redis.Pool
+	ErrNil			= redis.ErrNil
 )
 
 func init() {
