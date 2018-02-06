@@ -109,7 +109,8 @@ func command(c *ace.C) {
 		c.JSON(400, NewResponse(-1, "请输入正确的指令"))
 		return
 	}
-	data, err := SendCMD(tag, cmd, CMDType(cmdType))
+	log.Info("指令状态：", cmdType)
+	data, err := SendCMD(tag, cmd, int8(cmdType))
 	if err != nil {
 		log.Error(err)
 		c.JSON(500, NewResponse(-1, err.Error()))

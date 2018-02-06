@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"syscall"
 	"sync"
+	"strconv"
 )
 
 const (
@@ -25,13 +26,12 @@ const (
 	UnknownlineType	= 1
 )
 
-type CMDType int8
-
 var (
 	ConnPool 			map[string]*TCPConn
 	ConnNilErr			= errors.New("connection is nil")
-	readType CMDType 	= 0
+	readType int8 		= 0
 	poolMux				sync.Mutex
+	noticeDomain		= "127.0.0.1:8080"
 )
 
 type TCPConn struct {
@@ -45,7 +45,7 @@ type TCPConn struct {
 	StopCheck		chan struct{}	`json:"omitempty"`
 	Checking		bool
 	mux				sync.Mutex
-	Result			chan []byte
+	Result			chan []byte		`json:"omitempty"`
 }
 
 func init() {
@@ -60,6 +60,24 @@ func init() {
 		panic(fmt.Sprint("支持连接数超过最大限制：", LIMITS, " 配置连接数：", conns))
 	}
 	ConnPool = make(map[string]*TCPConn, conns)
+	noticeDomain = viper.GetString("noticeDomain")
+	initPool()
+}
+
+func initPool() {
+	datas, err := utils.GET(utils.MakeUrl(noticeDomain, "/light/api/dtu/all"))
+	if err != nil {
+		panic(err)
+	}
+
+	for _, tc := range datas {
+		err = AddToPoole(TCPConn{RegisterMsg:tc.DeviceCode, HeartMsg:tc.BeatContent, HeartInterval:tc.BeatTime}, UnknownlineType)
+		if err != nil {
+			log.Error(err)
+			continue
+		}
+	}
+
 }
 
 func Listen() {
@@ -77,7 +95,7 @@ func Listen() {
 			log.Error(err)
 			continue
 		}
-		log.Info("设备连接成功")
+		log.Info("设备连接成功", conn.RemoteAddr())
 		// 接收请求协程
 		err = AddToPoole(TCPConn{Status: ONLINE, Conn: conn}, OnlineType)
 		if err != nil {
@@ -100,12 +118,13 @@ func AddToPoole(tcpConn TCPConn, addtype int8) error {
 			goto REREAD
 		}
 
-		if err != nil {
-			log.Error(err)
+		if err != nil || len(data) > 35 {
+			log.Error("nil err then data length too long", err)
 			tcpConn.Conn.Close()
 			return err
 		}
 		tcpConn.RegisterMsg = utils.Trim(string(data))
+		log.Info("注册信息：", tcpConn.RegisterMsg)
 	}
 
 	// 在池中已存在
@@ -113,6 +132,7 @@ func AddToPoole(tcpConn TCPConn, addtype int8) error {
 	if tc, ok := ConnPool[utils.Trim(tcpConn.RegisterMsg)]; ok {
 		if addtype == OnlineType {
 			tc.Conn = tcpConn.Conn
+			tc.Status = tcpConn.Status
 		} else {
 			tc.HeartMsg = tcpConn.HeartMsg
 			tc.HeartInterval = tcpConn.HeartInterval
@@ -161,13 +181,15 @@ func (tcpConn *TCPConn) handleRequest() {
 			}
 			continue
 		}
-		// 是否是心跳包
-		fmt.Println("->>", utils.Trim(string(buf)), "-->", tcpConn.HeartMsg, utils.Trim(string(buf)) == tcpConn.HeartMsg)
-		if utils.Trim(string(buf)) == tcpConn.HeartMsg {
-			tcpConn.LastHeart = time.Now()
-			utils.SetEX("heart_" + tcpConn.RegisterMsg, tcpConn.HeartInterval + DEVIATION, []byte(tcpConn.HeartMsg))
-		} else {
-			tcpConn.writeResult(buf)
+		if tcpConn.HeartMsg != "" {
+			// 是否是心跳包
+			// fmt.Println("->>", utils.Trim(string(buf)), "-->", tcpConn.HeartMsg, utils.Trim(string(buf)) == tcpConn.HeartMsg)
+			if utils.Trim(string(buf)) == tcpConn.HeartMsg {
+				tcpConn.LastHeart = time.Now()
+				utils.SetEX("heart_"+tcpConn.RegisterMsg, tcpConn.HeartInterval+DEVIATION, []byte(tcpConn.HeartMsg))
+			} else {
+				tcpConn.writeResult(buf)
+			}
 		}
 		// fmt.Println(string(buf), fmt.Sprintf("%X", buf))
 		log.Info(tcpConn.RegisterMsg, "-->", string(buf), "--", fmt.Sprintf("%X", buf))
@@ -225,11 +247,18 @@ func (tcpConn *TCPConn) check(data []byte) {
 	// 与心跳内容进行比较
 	if data != nil && string(data) == tcpConn.HeartMsg {
 		tcpConn.Status = ONLINE
+		_, err := utils.POST(utils.MakeUrl(noticeDomain, "/light/api/dtu/connection/", tcpConn.RegisterMsg, "/", strconv.Itoa(ONLINE)))
+		if err != nil {
+			log.Error(err)
+		}
 	} else if tcpConn.Status == ONLINE {
 		tcpConn.Status = DANGER
 	} else if tcpConn.Status == DANGER {
 		tcpConn.Status = OFFLINE
-		//  todo 通知管理端，设备已掉线
+		_, err := utils.POST(utils.MakeUrl(noticeDomain, "/light/api/dtu/connection/", tcpConn.RegisterMsg, "/", strconv.Itoa(OFFLINE)))
+		if err != nil {
+			log.Error(err)
+		}
 	}
 }
 
@@ -237,13 +266,12 @@ func readData(conn net.Conn) ([]byte, error) {
 	if conn != nil {
 		data := make([]byte, 1024)
 		n, err := conn.Read(data)
-		fmt.Println(string(data[0:n]))
 		return data[0:n], err
 	}
 	return nil, ConnNilErr
 }
 
-func SendCMD(tag, cmd string, cmdType CMDType) ([]byte, error) {
+func SendCMD(tag, cmd string, cmdType int8) ([]byte, error) {
 	var err error = nil
 	var rData, dst []byte
 	if tcpConn, ok := ConnPool[utils.Trim(tag)]; ok {
@@ -252,6 +280,7 @@ func SendCMD(tag, cmd string, cmdType CMDType) ([]byte, error) {
 		if cmdType == readType {
 			rData, err = tcpConn.readResult()
 		}
+		log.Info("发送指令：", tcpConn.RegisterMsg, "  ", cmd, "  ", string(dst))
 	} else {
 		err = errors.New(fmt.Sprint("[", tag, "]不存在，没有此连接信息"))
 	}
@@ -303,7 +332,7 @@ func (tcpConn *TCPConn) readResult() ([]byte, error) {
 	var result []byte
 	var err error
 	select {
-	case time.After(time.Second * 3):
+	case <- time.After(time.Second * 3):
 		err = errors.New("读取返回结果超时")
 		log.Error(err)
 	case result = <- tcpConn.Result:
@@ -314,8 +343,8 @@ func (tcpConn *TCPConn) readResult() ([]byte, error) {
 func (tcpConn *TCPConn) writeResult(result []byte) error {
 	var err error
 	select {
-	case time.After(time.Second * 3):
-		err = errors.New("读取返回结果超时")
+	case <- time.After(time.Second * 3):
+		err = errors.New("写入结果结果超时")
 		log.Error(err)
 	case tcpConn.Result <- result:
 	}
