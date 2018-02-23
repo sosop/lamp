@@ -2,10 +2,10 @@ package utils
 
 import (
 	"net/http"
-	"net/http/httputil"
 	"encoding/json"
 	"github.com/pkg/errors"
 	"fmt"
+	"io/ioutil"
 )
 
 func GET(url string) ([]ConnData, error) {
@@ -14,32 +14,33 @@ func GET(url string) ([]ConnData, error) {
 	if err != nil {
 		return rr.Data, err
 	}
-	data, err := httputil.DumpResponse(resp, true)
+	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return rr.Data, err
 	}
 	err = json.Unmarshal(data, &rr)
-	if rr.Code != 0 {
+	if err == nil && rr.Code != 0 {
 		err = errors.New(fmt.Sprint("返回码错误：", rr.Code))
 	}
 	return rr.Data, err
 }
 
-func POST(url string) ([]ConnData, error) {
-	rr := RResult{}
+func POST(url string) error {
+
 	resp, err := http.Post(url, "application/x-www-form-urlencoded", nil)
 	if err != nil {
-		return rr.Data, err
+		return err
 	}
-	data, err := httputil.DumpResponse(resp, true)
+	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return rr.Data, err
+		return err
 	}
-	err = json.Unmarshal(data, &rr)
-	if rr.Code != 0 {
-		err = errors.New(fmt.Sprint("返回码错误：", rr.Code))
+	pr := PResult{}
+	err = json.Unmarshal(data, &pr)
+	if err == nil && pr.Code != 0 {
+		err = errors.New(fmt.Sprint("返回码错误：", pr.Code))
 	}
-	return rr.Data, err
+	return err
 }
 
 func MakeUrl(domain string, uri ...string) string {

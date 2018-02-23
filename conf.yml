@@ -16,3 +16,5 @@ tcp:
 http:
   host: 0.0.0.0
   port: 9393
+
+noticeDomain: 123.207.42.34:9494

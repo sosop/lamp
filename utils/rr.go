@@ -7,6 +7,11 @@ type RResult struct {
 	Data	[]ConnData
 }
 
+type PResult struct {
+	Code	int
+	Msg		string
+}
+
 type ConnData struct {
 	DeviceCode	string
 	BeatContent	string

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"sync"
 	"strconv"
+	"flag"
 )
 
 const (
@@ -49,7 +50,7 @@ type TCPConn struct {
 }
 
 func init() {
-
+	flag.Parse()
 	viper.SetDefault("tcp.host", "0.0.0.0")
 	viper.SetDefault("tcp.port", 7777)
 	viper.SetDefault("tcp.conns", LIMITS)
@@ -247,7 +248,7 @@ func (tcpConn *TCPConn) check(data []byte) {
 	// 与心跳内容进行比较
 	if data != nil && string(data) == tcpConn.HeartMsg {
 		tcpConn.Status = ONLINE
-		_, err := utils.POST(utils.MakeUrl(noticeDomain, "/light/api/dtu/connection/", tcpConn.RegisterMsg, "/", strconv.Itoa(ONLINE)))
+		err := utils.POST(utils.MakeUrl(noticeDomain, "/light/api/dtu/connection/", tcpConn.RegisterMsg, "/", strconv.Itoa(ONLINE)))
 		if err != nil {
 			log.Error(err)
 		}
@@ -255,7 +256,7 @@ func (tcpConn *TCPConn) check(data []byte) {
 		tcpConn.Status = DANGER
 	} else if tcpConn.Status == DANGER {
 		tcpConn.Status = OFFLINE
-		_, err := utils.POST(utils.MakeUrl(noticeDomain, "/light/api/dtu/connection/", tcpConn.RegisterMsg, "/", strconv.Itoa(OFFLINE)))
+		err := utils.POST(utils.MakeUrl(noticeDomain, "/light/api/dtu/connection/", tcpConn.RegisterMsg, "/", strconv.Itoa(OFFLINE)))
 		if err != nil {
 			log.Error(err)
 		}
