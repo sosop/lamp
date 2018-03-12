@@ -81,6 +81,18 @@ func initPool() {
 
 }
 
+func Refresh() {
+	log.Info("refresh begin")
+	// 清空池
+	for k, c := range ConnPool {
+		delete(ConnPool, k)
+		c.Close()
+	}
+	// 从新初始化
+	initPool()
+	log.Info("refresh end")
+}
+
 func Listen() {
 	host := viper.GetString("tcp.host")
 	port := viper.GetInt("tcp.port")
@@ -277,10 +289,15 @@ func SendCMD(tag, cmd string, cmdType int8) ([]byte, error) {
 	var rData, dst []byte
 	if tcpConn, ok := ConnPool[utils.Trim(tag)]; ok {
 		fmt.Sscanf(cmd, "%X", &dst)
-		_, err = tcpConn.Conn.Write(dst)
-		if cmdType == readType {
-			rData, err = tcpConn.readResult()
+		log.Info("转义后：", string(dst))
+		n, err := tcpConn.Conn.Write(dst)
+		log.Info("写入成功：", n)
+		if err != nil {
+			return rData, err
 		}
+
+		rData, err = tcpConn.readResult()
+
 		log.Info("发送指令：", tcpConn.RegisterMsg, "  ", cmd, "  ", string(dst))
 	} else {
 		err = errors.New(fmt.Sprint("[", tag, "]不存在，没有此连接信息"))

@@ -26,6 +26,7 @@ func ListenHttp() {
 	g.POST("/modify", modify)
 	g.POST("/create", create)
 	g.POST("/command", command)
+	g.POST("/refresh", refresh)
 
 	a.Run(fmt.Sprint(viper.GetString("http.host"), ":", viper.GetInt("http.port")))
 }
@@ -121,4 +122,9 @@ func command(c *ace.C) {
 		dataHex = fmt.Sprintf("%X", data)
 	}
 	c.JSON(200, NewResponse(0, dataHex))
+}
+
+func refresh(c *ace.C) {
+	Refresh()
+	c.JSON(200, "refresh ok!")
 }
