@@ -46,6 +46,7 @@ type TCPConn struct {
 	StopCheck		chan struct{}	`json:"omitempty"`
 	Checking		bool
 	mux				sync.Mutex
+	sendMux			sync.Mutex
 	Result			chan []byte		`json:"omitempty"`
 }
 
@@ -113,8 +114,8 @@ func Listen() {
 		err = AddToPoole(TCPConn{Status: ONLINE, Conn: conn}, OnlineType)
 		if err != nil {
 			log.Error(err)
-			continue
 		}
+
 	}
 }
 
@@ -122,20 +123,32 @@ func AddToPoole(tcpConn TCPConn, addtype int8) error {
 	defer poolMux.Unlock()
 	poolMux.Lock()
 	log.Info("开始加入池...")
+	times := 0
 	if addtype == OnlineType && utils.Trim(tcpConn.RegisterMsg) == "" {
-		// 读取第一条信息就是注册信息
+		// 设置读超时
+		tcpConn.Conn.SetReadDeadline(time.Now().Add(time.Second * 8))
 	REREAD:
-		data, err := readData(tcpConn.Conn)
-
-		if len(data) == 0 {
-			goto REREAD
+		if times >= 2 {
+			tcpConn.Conn.Close()
+			return errors.Errorf("retry times greater than 2")
 		}
 
+		// 读取第一条信息就是注册信息
+		data, err := readData(tcpConn.Conn)
 		if err != nil || len(data) > 35 {
 			log.Error("nil err then data length too long", err)
 			tcpConn.Conn.Close()
 			return err
 		}
+
+		if len(data) == 0 {
+			times ++
+			goto REREAD
+		}
+
+		// 取消读超时
+		tcpConn.Conn.SetReadDeadline(time.Time{})
+
 		tcpConn.RegisterMsg = utils.Trim(string(data))
 		log.Info("注册信息：", tcpConn.RegisterMsg)
 	}
@@ -288,6 +301,8 @@ func SendCMD(tag, cmd string, cmdType int8) ([]byte, error) {
 	var err error = nil
 	var rData, dst []byte
 	if tcpConn, ok := ConnPool[utils.Trim(tag)]; ok {
+		defer tcpConn.sendMux.Unlock()
+		tcpConn.sendMux.Lock()
 		fmt.Sscanf(cmd, "%X", &dst)
 		log.Info("转义后：", string(dst))
 		n, err := tcpConn.Conn.Write(dst)
