@@ -1,4 +1,4 @@
-APP = lamp
+APP = lamp_2.0.0
 
 build:
 	go build -o ./bin/${APP} -ldflags '-s -w'
