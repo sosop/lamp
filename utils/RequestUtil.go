@@ -14,11 +14,15 @@ func GET(url string) ([]ConnData, error) {
 	if err != nil {
 		return rr.Data, err
 	}
+	defer resp.Body.Close()
 	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return rr.Data, err
 	}
 	if data == nil {
+		return rr.Data, nil
+	}
+	if string(data) == "" {
 		return rr.Data, nil
 	}
 	err = json.Unmarshal(data, &rr)
