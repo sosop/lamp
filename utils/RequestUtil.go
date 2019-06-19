@@ -1,11 +1,11 @@
 package utils
 
 import (
-	"net/http"
 	"encoding/json"
-	"github.com/pkg/errors"
 	"fmt"
+	"github.com/pkg/errors"
 	"io/ioutil"
+	"net/http"
 )
 
 func GET(url string) ([]ConnData, error) {
@@ -14,9 +14,16 @@ func GET(url string) ([]ConnData, error) {
 	if err != nil {
 		return rr.Data, err
 	}
+	defer resp.Body.Close()
 	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return rr.Data, err
+	}
+	if data == nil {
+		return rr.Data, nil
+	}
+	if string(data) == "" {
+		return rr.Data, nil
 	}
 	err = json.Unmarshal(data, &rr)
 	if err == nil && rr.Code != 0 {
@@ -26,11 +33,17 @@ func GET(url string) ([]ConnData, error) {
 }
 
 func POST(url string) error {
-
-	resp, err := http.Post(url, "application/x-www-form-urlencoded", nil)
+	request, e := http.NewRequest("POST", url, nil)
+	if e != nil {
+		return e
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := Client.Do(request)
+	//resp, err := http.Post(url, "application/x-www-form-urlencoded", nil)
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err

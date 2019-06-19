@@ -1,20 +1,28 @@
 package utils
 
 import (
-	"time"
+	"github.com/garyburd/redigo/redis"
+	"github.com/pkg/errors"
+	"github.com/spf13/viper"
+	_ "lamp/config"
+	"net/http"
 	"os"
 	"os/signal"
-	"syscall"
-	"github.com/garyburd/redigo/redis"
 	"strings"
-	"github.com/pkg/errors"
-	_ "lamp/config"
-	"github.com/spf13/viper"
+	"syscall"
+	"time"
 )
 
 var (
-	Pool 			*redis.Pool
-	ErrNil			= redis.ErrNil
+	Pool   *redis.Pool
+	ErrNil = redis.ErrNil
+	//transport = &http.Transport{
+	//	DialContext: (net.Dialer{
+	//		KeepAlive: 1 * time.Hour,
+	//	}).DialContext,
+	//	DisableKeepAlives: false,
+	//}
+	Client = http.DefaultClient
 )
 
 func init() {
@@ -28,7 +36,6 @@ func init() {
 	viper.SetDefault("redis.maxActive", 30)
 	viper.SetDefault("redis.idleTimeout", 300)
 
-
 	redisConfig := &RedisConfig{}
 	viper.UnmarshalKey("redis", redisConfig)
 	Pool = newPool(redisConfig)
@@ -36,29 +43,29 @@ func init() {
 }
 
 type RedisConfig struct {
-	Addr	       	string
-	ReadTimeout    	int
-	WriteTimeout   	int
-	ConnectTimeout 	int
-	DB             	int
-	MaxIdle			int
-	MaxActive		int
-	IdleTimeout		int
+	Addr           string
+	ReadTimeout    int
+	WriteTimeout   int
+	ConnectTimeout int
+	DB             int
+	MaxIdle        int
+	MaxActive      int
+	IdleTimeout    int
 }
 
 func newPool(redisConfig *RedisConfig) *redis.Pool {
 
 	return &redis.Pool{
-		MaxIdle:		redisConfig.MaxIdle,
-		MaxActive:		redisConfig.MaxActive,
-		IdleTimeout: 	time.Duration(redisConfig.IdleTimeout) * time.Second,
+		MaxIdle:     redisConfig.MaxIdle,
+		MaxActive:   redisConfig.MaxActive,
+		IdleTimeout: time.Duration(redisConfig.IdleTimeout) * time.Second,
 
 		Dial: func() (redis.Conn, error) {
 			c, err := redis.Dial("tcp", redisConfig.Addr,
-						redis.DialReadTimeout(time.Duration(redisConfig.ReadTimeout) * time.Second),
-						redis.DialWriteTimeout(time.Duration(redisConfig.WriteTimeout) * time.Second),
-						redis.DialConnectTimeout(time.Duration(redisConfig.ConnectTimeout) * time.Second),
-						redis.DialDatabase(redisConfig.DB))
+				redis.DialReadTimeout(time.Duration(redisConfig.ReadTimeout)*time.Second),
+				redis.DialWriteTimeout(time.Duration(redisConfig.WriteTimeout)*time.Second),
+				redis.DialConnectTimeout(time.Duration(redisConfig.ConnectTimeout)*time.Second),
+				redis.DialDatabase(redisConfig.DB))
 			if err != nil {
 				return nil, err
 			}
