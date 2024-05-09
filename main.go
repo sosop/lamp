@@ -1,12 +1,13 @@
 package main
 
 import (
+	"flag"
 	"lamp/server"
 	"os"
-	"syscall"
 	"os/signal"
-	log	"github.com/golang/glog"
-	"flag"
+	"syscall"
+
+	log "github.com/golang/glog"
 	"github.com/spf13/viper"
 )
 
@@ -26,7 +27,7 @@ func main() {
 	go server.Monitor()
 
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 
 	log.Info("服务启动成功")
 	s := <-c

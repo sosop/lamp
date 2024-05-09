@@ -1,11 +1,12 @@
 package utils
 
 import (
-	"net/http"
 	"encoding/json"
-	"github.com/pkg/errors"
 	"fmt"
-	"io/ioutil"
+	"io"
+	"net/http"
+
+	"github.com/pkg/errors"
 )
 
 func GET(url string) ([]ConnData, error) {
@@ -14,7 +15,8 @@ func GET(url string) ([]ConnData, error) {
 	if err != nil {
 		return rr.Data, err
 	}
-	data, err := ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return rr.Data, err
 	}
@@ -31,7 +33,8 @@ func POST(url string) error {
 	if err != nil {
 		return err
 	}
-	data, err := ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
@@ -45,7 +48,7 @@ func POST(url string) error {
 
 func MakeUrl(domain string, uri ...string) string {
 	url := fmt.Sprint("http://", domain)
-	if uri == nil || len(uri) == 0 {
+	if len(uri) == 0 {
 		return url
 	}
 	for _, s := range uri {

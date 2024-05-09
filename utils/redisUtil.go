@@ -1,20 +1,25 @@
 package utils
 
 import (
-	"time"
+	_ "lamp/config"
 	"os"
 	"os/signal"
-	"syscall"
-	"github.com/garyburd/redigo/redis"
 	"strings"
+	"syscall"
+	"time"
+
+	"github.com/gomodule/redigo/redis"
 	"github.com/pkg/errors"
-	_ "lamp/config"
 	"github.com/spf13/viper"
 )
 
 var (
-	Pool 			*redis.Pool
-	ErrNil			= redis.ErrNil
+	Pool   *redis.Pool
+	ErrNil = redis.ErrNil
+)
+
+const (
+	OK = "OK"
 )
 
 func init() {
@@ -28,7 +33,6 @@ func init() {
 	viper.SetDefault("redis.maxActive", 30)
 	viper.SetDefault("redis.idleTimeout", 300)
 
-
 	redisConfig := &RedisConfig{}
 	viper.UnmarshalKey("redis", redisConfig)
 	Pool = newPool(redisConfig)
@@ -36,29 +40,29 @@ func init() {
 }
 
 type RedisConfig struct {
-	Addr	       	string
-	ReadTimeout    	int
-	WriteTimeout   	int
-	ConnectTimeout 	int
-	DB             	int
-	MaxIdle			int
-	MaxActive		int
-	IdleTimeout		int
+	Addr           string
+	ReadTimeout    int
+	WriteTimeout   int
+	ConnectTimeout int
+	DB             int
+	MaxIdle        int
+	MaxActive      int
+	IdleTimeout    int
 }
 
 func newPool(redisConfig *RedisConfig) *redis.Pool {
 
 	return &redis.Pool{
-		MaxIdle:		redisConfig.MaxIdle,
-		MaxActive:		redisConfig.MaxActive,
-		IdleTimeout: 	time.Duration(redisConfig.IdleTimeout) * time.Second,
+		MaxIdle:     redisConfig.MaxIdle,
+		MaxActive:   redisConfig.MaxActive,
+		IdleTimeout: time.Duration(redisConfig.IdleTimeout) * time.Second,
 
 		Dial: func() (redis.Conn, error) {
 			c, err := redis.Dial("tcp", redisConfig.Addr,
-						redis.DialReadTimeout(time.Duration(redisConfig.ReadTimeout) * time.Second),
-						redis.DialWriteTimeout(time.Duration(redisConfig.WriteTimeout) * time.Second),
-						redis.DialConnectTimeout(time.Duration(redisConfig.ConnectTimeout) * time.Second),
-						redis.DialDatabase(redisConfig.DB))
+				redis.DialReadTimeout(time.Duration(redisConfig.ReadTimeout)*time.Second),
+				redis.DialWriteTimeout(time.Duration(redisConfig.WriteTimeout)*time.Second),
+				redis.DialConnectTimeout(time.Duration(redisConfig.ConnectTimeout)*time.Second),
+				redis.DialDatabase(redisConfig.DB))
 			if err != nil {
 				return nil, err
 			}
@@ -74,7 +78,7 @@ func newPool(redisConfig *RedisConfig) *redis.Pool {
 
 func cleanupHook() {
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-c
 		Pool.Close()
@@ -102,7 +106,7 @@ func Set(key string, value []byte) error {
 	if err != nil {
 		return err
 	}
-	if "OK" != strings.ToUpper(strings.TrimSpace(ok)) {
+	if OK != strings.ToUpper(strings.TrimSpace(ok)) {
 		return errors.New("set failur result is " + ok)
 	}
 	return nil
@@ -115,7 +119,7 @@ func SetEX(key string, seconds int, value []byte) error {
 	if err != nil {
 		return err
 	}
-	if "OK" != strings.ToUpper(strings.TrimSpace(ok)) {
+	if OK != strings.ToUpper(strings.TrimSpace(ok)) {
 		return errors.New("set failur result is " + ok)
 	}
 	return nil

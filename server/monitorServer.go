@@ -1,8 +1,9 @@
 package server
 
 import (
-	_ "net/http/pprof"
 	"net/http"
+	_ "net/http/pprof"
+
 	"github.com/spf13/viper"
 )
 

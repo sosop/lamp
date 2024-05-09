@@ -1,13 +1,16 @@
 package server
 
 import (
-	"github.com/plimble/ace"
-	log	"github.com/golang/glog"
-	"strings"
-	_ "lamp/config"
-	"github.com/spf13/viper"
 	"fmt"
+	_ "lamp/config"
 	"lamp/utils"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	log "github.com/golang/glog"
+	"github.com/spf13/viper"
 )
 
 func init() {
@@ -16,11 +19,9 @@ func init() {
 }
 
 func ListenHttp() {
-	a := ace.New()
-	g := a.Group("/device", func (c *ace.C) {
-		log.Info(c.Request.RemoteAddr, c.Request.URL)
-		c.Next()
-	})
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.Default()
+	g := r.Group("/device")
 	g.GET("/:tag", device)
 	g.DELETE("/:tag", destroy)
 	g.POST("/modify", modify)
@@ -28,7 +29,7 @@ func ListenHttp() {
 	g.POST("/command", command)
 	g.POST("/refresh", refresh)
 
-	a.Run(fmt.Sprint(viper.GetString("http.host"), ":", viper.GetInt("http.port")))
+	r.Run(fmt.Sprint(viper.GetString("http.host"), ":", viper.GetInt("http.port")))
 }
 
 type Response struct {
@@ -40,20 +41,23 @@ func NewResponse(code int, data interface{}) Response {
 	return Response{code, data}
 }
 
-func create(c *ace.C) {
+func create(c *gin.Context) {
 	tcpConn := TCPConn{}
-	c.ParseJSON(&tcpConn)
+	if err := c.ShouldBindJSON(&tcpConn); err != nil {
+		c.JSON(http.StatusBadRequest, NewResponse(-1, "json 参数格式错误"))
+		return
+	}
 	if utils.Trim(tcpConn.RegisterMsg) == "" ||
 		utils.Trim(tcpConn.HeartMsg) == "" ||
 		tcpConn.HeartInterval == 0 {
-		c.JSON(400, NewResponse(-1, "参数不正确"))
+		c.JSON(http.StatusBadRequest, NewResponse(-1, "参数不正确"))
 		return
 	}
-	AddToPoole(tcpConn, UnknownlineType)
-	c.JSON(200, NewResponse(0, "创建成功"))
+	AddToPoole(&tcpConn, UnknownlineType)
+	c.JSON(http.StatusOK, NewResponse(0, "创建成功"))
 }
 
-func destroy(c *ace.C) {
+func destroy(c *gin.Context) {
 	tag := utils.Trim(c.Param("tag"))
 	if tcpConn, ok := ConnPool[tag]; ok {
 		tcpConn.Close()
@@ -61,9 +65,12 @@ func destroy(c *ace.C) {
 	c.JSON(200, NewResponse(0, "删除成功"))
 }
 
-func modify(c *ace.C) {
+func modify(c *gin.Context) {
 	tcpConn := TCPConn{}
-	c.ParseJSON(&tcpConn)
+	if err := c.ShouldBindJSON(&tcpConn); err != nil {
+		c.JSON(http.StatusBadRequest, NewResponse(-1, "json 参数格式错误"))
+		return
+	}
 	updated := false
 	if utils.Trim(tcpConn.RegisterMsg) == "" {
 		c.JSON(400, NewResponse(-1, "参数不正确"))
@@ -86,45 +93,55 @@ func modify(c *ace.C) {
 	c.JSON(200, NewResponse(0, "修改成功"))
 }
 
-func device(c *ace.C) {
+func device(c *gin.Context) {
 	tag := utils.Trim(c.Param("tag"))
 	if strings.ToLower(tag) == "all" {
-		c.JSON(200, NewResponse(0, ConnPool))
+		c.JSON(http.StatusOK, NewResponse(0, ConnPool))
 		return
 	}
 
 	if tcpConn, ok := ConnPool[tag]; ok {
-		c.JSON(200, NewResponse(0, tcpConn))
+		c.JSON(http.StatusOK, NewResponse(0, tcpConn))
 		return
 	}
 
-	c.JSON(404, nil)
+	c.JSON(http.StatusNotFound, nil)
 }
 
-func command(c *ace.C) {
-	tag := utils.Trim(c.MustPostString("registerMsg", ""))
-	cmd := utils.Trim(c.MustPostString("cmd", ""))
-	cmdType := c.MustPostInt("cmdType", 0)
+func command(c *gin.Context) {
+	tag := utils.Trim(c.PostForm("registerMsg"))
+	cmd := utils.Trim(c.PostForm("cmd"))
+	cmdType := c.PostForm("cmdType")
+	cmdTypeInt := 0
+	var err error
+	if cmdType != "" {
+		cmdTypeInt, err = strconv.Atoi(cmdType)
+	}
+	if err != nil {
+		log.Error(err)
+		c.JSON(http.StatusBadRequest, NewResponse(-1, "cmdType 格式不正确"))
+		return
+	}
 	if cmd == "" {
 		log.Error(fmt.Errorf("输入指令不正确"))
-		c.JSON(400, NewResponse(-1, "请输入正确的指令"))
+		c.JSON(http.StatusBadRequest, NewResponse(-1, "请输入正确的指令"))
 		return
 	}
 	log.Info("指令状态：", cmdType)
-	data, err := SendCMD(tag, cmd, int8(cmdType))
+	data, err := SendCMD(tag, cmd, int8(cmdTypeInt))
 	if err != nil {
 		log.Error(err)
-		c.JSON(500, NewResponse(-1, err.Error()))
+		c.JSON(http.StatusInternalServerError, NewResponse(-1, err.Error()))
 		return
 	}
 	dataHex := ""
 	if data != nil {
 		dataHex = fmt.Sprintf("%X", data)
 	}
-	c.JSON(200, NewResponse(0, dataHex))
+	c.JSON(http.StatusOK, NewResponse(0, dataHex))
 }
 
-func refresh(c *ace.C) {
+func refresh(c *gin.Context) {
 	Refresh()
-	c.JSON(200, "refresh ok!")
+	c.JSON(http.StatusOK, "refresh ok!")
 }

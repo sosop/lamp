@@ -1,53 +1,54 @@
 package server
 
 import (
-	"net"
-	log	"github.com/golang/glog"
+	"flag"
 	"fmt"
-	"github.com/pkg/errors"
-	"time"
 	"lamp/utils"
-	"github.com/spf13/viper"
+	"net"
 	"os"
 	"os/signal"
-	"syscall"
-	"sync"
 	"strconv"
-	"flag"
+	"sync"
+	"syscall"
+	"time"
+
+	log "github.com/golang/glog"
+	"github.com/pkg/errors"
+	"github.com/spf13/viper"
 )
 
 const (
-	OFFLINE			= iota
+	OFFLINE = iota
 	DANGER
 	ONLINE
-	NETWORK 		= "tcp"
-	DEVIATION		= 3
-	LIMITS			= 10240
-	OnlineType		= 0
-	UnknownlineType	= 1
+	NETWORK         = "tcp"
+	DEVIATION       = 3
+	LIMITS          = 10240
+	OnlineType      = 0
+	UnknownlineType = 1
 )
 
 var (
-	ConnPool 			map[string]*TCPConn
-	ConnNilErr			= errors.New("connection is nil")
-	readType int8 		= 0
-	poolMux				sync.Mutex
-	noticeDomain		= "127.0.0.1:8080"
+	ConnPool   map[string]*TCPConn
+	ConnNilErr = errors.New("connection is nil")
+	// readType     int8 = 0
+	poolMux      sync.Mutex
+	noticeDomain = "127.0.0.1:8080"
 )
 
 type TCPConn struct {
-	Conn 			net.Conn		`json:"omitempty"`
-	HeartInterval 	int
-	RegisterMsg		string
-	HeartMsg		string
-	Status			int8
-	LastHeart		time.Time
-	LastCheck		time.Time
-	StopCheck		chan struct{}	`json:"omitempty"`
-	Checking		bool
-	mux				sync.Mutex
-	sendMux			sync.Mutex
-	Result			chan []byte		`json:"omitempty"`
+	Conn          net.Conn `json:"omitempty"`
+	HeartInterval int
+	RegisterMsg   string
+	HeartMsg      string
+	Status        int8
+	LastHeart     time.Time
+	LastCheck     time.Time
+	StopCheck     chan struct{}
+	Checking      bool
+	mux           sync.Mutex
+	sendMux       sync.Mutex
+	Result        chan []byte
 }
 
 func init() {
@@ -69,11 +70,12 @@ func init() {
 func initPool() {
 	datas, err := utils.GET(utils.MakeUrl(noticeDomain, "/light/api/dtu/all"))
 	if err != nil {
-		panic(err)
+		log.Error(err)
+		return
 	}
 
 	for _, tc := range datas {
-		err = AddToPoole(TCPConn{RegisterMsg:tc.DeviceCode, HeartMsg:tc.BeatContent, HeartInterval:tc.BeatTime}, UnknownlineType)
+		err = AddToPoole(&TCPConn{RegisterMsg: tc.DeviceCode, HeartMsg: tc.BeatContent, HeartInterval: tc.BeatTime}, UnknownlineType)
 		if err != nil {
 			log.Error(err)
 			continue
@@ -111,7 +113,7 @@ func Listen() {
 		}
 		log.Info("设备连接成功", conn.RemoteAddr())
 		// 接收请求协程
-		err = AddToPoole(TCPConn{Status: ONLINE, Conn: conn}, OnlineType)
+		err = AddToPoole(&TCPConn{Status: ONLINE, Conn: conn}, OnlineType)
 		if err != nil {
 			log.Error(err)
 		}
@@ -119,7 +121,7 @@ func Listen() {
 	}
 }
 
-func AddToPoole(tcpConn TCPConn, addtype int8) error {
+func AddToPoole(tcpConn *TCPConn, addtype int8) error {
 	defer poolMux.Unlock()
 	poolMux.Lock()
 	log.Info("开始加入池...")
@@ -142,7 +144,7 @@ func AddToPoole(tcpConn TCPConn, addtype int8) error {
 		}
 
 		if len(data) == 0 {
-			times ++
+			times++
 			goto REREAD
 		}
 
@@ -154,7 +156,6 @@ func AddToPoole(tcpConn TCPConn, addtype int8) error {
 	}
 
 	// 在池中已存在
-	var tConn *TCPConn
 	if tc, ok := ConnPool[utils.Trim(tcpConn.RegisterMsg)]; ok {
 		if addtype == OnlineType {
 			tc.Conn = tcpConn.Conn
@@ -163,25 +164,22 @@ func AddToPoole(tcpConn TCPConn, addtype int8) error {
 			tc.HeartMsg = tcpConn.HeartMsg
 			tc.HeartInterval = tcpConn.HeartInterval
 		}
-		tConn = tc
-
 	} else {
 		tcpConn.StopCheck = make(chan struct{}, 1)
 		tcpConn.Result = make(chan []byte, 1)
-		ConnPool[utils.Trim(tcpConn.RegisterMsg)] = &tcpConn
-		tConn = ConnPool[utils.Trim(tcpConn.RegisterMsg)]
+		ConnPool[utils.Trim(tcpConn.RegisterMsg)] = tcpConn
 	}
 	if addtype == OnlineType {
-		go tConn.handleRequest()
+		go ConnPool[utils.Trim(tcpConn.RegisterMsg)].handleRequest()
 	}
-	go tConn.heartbeat()
+	go ConnPool[utils.Trim(tcpConn.RegisterMsg)].heartbeat()
 	log.Info("已完成入池")
 	return nil
 }
 
 func cleanupHook() {
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-c
 		CloseAllConn()
@@ -189,14 +187,6 @@ func cleanupHook() {
 }
 
 func (tcpConn *TCPConn) handleRequest() {
-	// 添加到池中
-	/*
-	err := AddToPoole(*tcpConn, OnlineType)
-	if err != nil {
-		log.Error(err)
-		return
-	}
-	*/
 	log.Info("开始接收请求")
 	for {
 		buf, err := readData(tcpConn.Conn)
@@ -232,14 +222,16 @@ func (tcpConn *TCPConn) heartbeat() {
 
 	// 阻塞到tcpConn.Checking == false
 	if tcpConn.Checking {
-		tcpConn.stopCheckHeart()
+		// tcpConn.stopCheckHeart()
+		return
 	}
 
-	t := time.Tick(time.Duration(tcpConn.HeartInterval) * time.Second)
+	t := time.NewTicker(time.Duration(tcpConn.HeartInterval) * time.Second)
+	defer t.Stop()
 
 	for {
 		select {
-		case now := <- t:
+		case now := <-t.C:
 			tcpConn.Checking = true
 			tcpConn.LastCheck = now
 			heartMsg, err := utils.Get("heart_" + tcpConn.RegisterMsg)
@@ -248,7 +240,7 @@ func (tcpConn *TCPConn) heartbeat() {
 				continue
 			}
 			tcpConn.check(heartMsg)
-		case <- tcpConn.StopCheck:
+		case <-tcpConn.StopCheck:
 			tcpConn.Checking = false
 			return
 		}
@@ -298,18 +290,18 @@ func readData(conn net.Conn) ([]byte, error) {
 }
 
 func SendCMD(tag, cmd string, cmdType int8) ([]byte, error) {
-	var err error = nil
+	var err error
 	var rData, dst []byte
 	if tcpConn, ok := ConnPool[utils.Trim(tag)]; ok {
 		defer tcpConn.sendMux.Unlock()
 		tcpConn.sendMux.Lock()
 		fmt.Sscanf(cmd, "%X", &dst)
 		log.Info("转义后：", string(dst))
-		n, err := tcpConn.Conn.Write(dst)
-		log.Info("写入成功：", n)
+		_, err = tcpConn.Conn.Write(dst)
 		if err != nil {
 			return rData, err
 		}
+		// log.Info("写入成功：", n)
 
 		rData, err = tcpConn.readResult()
 
@@ -346,7 +338,7 @@ func (tcpConn *TCPConn) stopCheckHeart() {
 	select {
 	case tcpConn.StopCheck <- struct{}{}:
 		log.Info("停止检测心跳")
-	case <- time.After(time.Second * 3):
+	case <-time.After(time.Second * 3):
 		log.Info("超时")
 	}
 }
@@ -365,10 +357,10 @@ func (tcpConn *TCPConn) readResult() ([]byte, error) {
 	var result []byte
 	var err error
 	select {
-	case <- time.After(time.Second * 3):
+	case <-time.After(time.Second * 3):
 		err = errors.New("读取返回结果超时")
 		log.Error(err)
-	case result = <- tcpConn.Result:
+	case result = <-tcpConn.Result:
 	}
 	return result, err
 }
@@ -376,7 +368,7 @@ func (tcpConn *TCPConn) readResult() ([]byte, error) {
 func (tcpConn *TCPConn) writeResult(result []byte) error {
 	var err error
 	select {
-	case <- time.After(time.Second * 3):
+	case <-time.After(time.Second * 3):
 		err = errors.New("写入结果结果超时")
 		log.Error(err)
 	case tcpConn.Result <- result:
