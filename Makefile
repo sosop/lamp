@@ -1,13 +1,20 @@
-APP = lamp
-
-build:
-	go build -o ./bin/${APP} -ldflags '-s -w'
-
-linux:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./bin/${APP} -ldflags '-s -w'
-
-run:
-	@go run *.go
-
+BUILD_ENV := CGO_ENABLED=0
+BUILD=`date +%FT%T%z`
+LDFLAGS=-ldflags "-w -s -X main.Version=${VERSION} -X main.Build=${BUILD}"
+TARGET_EXEC := log-agent
+.PHONY: all clean setup build-linux build-osx build-windows
+all: clean setup build-linux build-osx build-windows
 clean:
-	@rm ./bin/${APP}
+	rm -rf build
+setup:
+	mkdir -p build/linux
+	mkdir -p build/osx
+	mkdir -p build/windows
+build-linux: setup
+	${BUILD_ENV} GOARCH=amd64 GOOS=linux go build ${LDFLAGS} -o build/linux/${TARGET_EXEC}
+build-linux-arm: setup
+	${BUILD_ENV} GOARCH=arm64 GOOS=linux go build ${LDFLAGS} -o build/linux/${TARGET_EXEC}
+build-osx: setup
+	${BUILD_ENV} GOARCH=amd64 GOOS=darwin go build ${LDFLAGS} -o build/osx/${TARGET_EXEC}
+build-windows: setup
+	${BUILD_ENV} GOARCH=amd64 GOOS=windows go build ${LDFLAGS} -o build/windows/${TARGET_EXEC}.exe
