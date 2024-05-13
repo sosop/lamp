@@ -46,8 +46,8 @@ type TCPConn struct {
 	LastCheck     time.Time
 	StopCheck     chan struct{}
 	Checking      bool
-	mux           sync.Mutex
-	sendMux       sync.Mutex
+	mux           *sync.Mutex
+	sendMux       *sync.Mutex
 	Result        chan []byte
 }
 
@@ -86,6 +86,8 @@ func initPool() {
 
 func Refresh() {
 	log.Info("refresh begin")
+	poolMux.Lock()
+	defer poolMux.Unlock()
 	// 清空池
 	for k, c := range ConnPool {
 		delete(ConnPool, k)
@@ -296,7 +298,7 @@ func SendCMD(tag, cmd string, cmdType int8) ([]byte, error) {
 		defer tcpConn.sendMux.Unlock()
 		tcpConn.sendMux.Lock()
 		fmt.Sscanf(cmd, "%X", &dst)
-		log.Info("转义后：", string(dst))
+		log.Info("转义后：", dst)
 		_, err = tcpConn.Conn.Write(dst)
 		if err != nil {
 			return rData, err
@@ -305,7 +307,7 @@ func SendCMD(tag, cmd string, cmdType int8) ([]byte, error) {
 
 		rData, err = tcpConn.readResult()
 
-		log.Info("发送指令：", tcpConn.RegisterMsg, "  ", cmd, "  ", string(dst))
+		log.Info("发送指令：", tcpConn.RegisterMsg, "  ", cmd, "  ", dst)
 	} else {
 		err = errors.New(fmt.Sprint("[", tag, "]不存在，没有此连接信息"))
 	}
